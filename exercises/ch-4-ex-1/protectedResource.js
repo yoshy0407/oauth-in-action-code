@@ -23,11 +23,44 @@ var resource = {
 };
 
 var getAccessToken = function(req, res, next) {
-	/*
-	 * Scan for an access token on the incoming request.
-	 */
-	
+	//HTTPヘッダーのAuthorizationをチェック
+	// ヘッダーの大文字小文字は気にしない。
+	// Authorization, authorization, Baerer, bearer, BEARER
+	// Expressは小文字にされる
+	var inToken = null;
+
+	//ヘッダーのケース
+	var auth = req.headers['authorization'];
+	if (auth && auth.toLowerCase().indexOf('bearer') == 0) {
+		inToken = auth.slice('bearer '.length);
+	//ボディにアクセストークンが設定されているケース
+	} else if (req.body && req.body.access_token) {
+		inToken = req.body.access_token;
+	//クエリーにアクセストークンが設定されているケース
+	} else if (req.query && req.query.access_token) {
+		inToken = req.query.access_token;
+	}
+
+	//トークンが正しいかどうか確認する
+	nosql.one(function(token) {
+		if (token.access_token == inToken) {
+			return token;
+		}
+	}, function(err, token) {
+		if (token) {
+			console.log("We found a matching token: %s", inToken);
+		} else {
+			console.log("No matching token was found,");
+		}
+		req.access_token = token;
+		next();
+		return;
+	});
+
 };
+
+//getAccessTokenを利用できるようにする
+app.all('*', getAccessToken);
 
 app.options('/resource', cors());
 
@@ -35,11 +68,12 @@ app.options('/resource', cors());
 /*
  * Add the getAccessToken function to this handler
  */
-app.post("/resource", cors(), function(req, res){
-
-	/*
-	 * Check to see if the access token was found or not
-	 */
+app.post("/resource", getAccessToken, function(req, res){
+	if (req.access_token) {
+		res.json(resource)
+	} else {
+		res.status(401).end();
+	}
 	
 });
 
